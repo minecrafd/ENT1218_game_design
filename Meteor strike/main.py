@@ -8,6 +8,12 @@ import math
 pygame.init()
 vec = pygame.math.Vector2  # for two-dimensional
 
+# Gamestate
+start_screen = True  # Flag to indicate if the start screen should be displayed
+game_started = False  # Flag to indicate if the game has started
+game_over = False  # Flag to indicate if the game is over
+game_win = False  # Flag to indicate if the game is won
+
 # parameters to build a game
 HEIGHT = 1080
 WIDTH = 1920
@@ -22,8 +28,15 @@ BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 
 # set the FPS of the game
-FPS = 60
+FPS = 30
 FramePerSec = pygame.time.Clock()  # that is, the fps is 60
+
+# pygame.mixer initialization
+pygame.mixer.init()
+
+# Load and play the background music
+pygame.mixer.music.load("./music/music.mp3")
+pygame.mixer.music.play(-1)  # -1 means the music will loop indefinitely
 
 # set the display surface and the title
 DISPLAYSURF = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -40,6 +53,18 @@ def compute_acceleration(p1: tuple[int, int], p2: tuple[int, int]) -> tuple[floa
     dy = (p2[1] - p1[1]) / distance  # y-axis acceleration component
     acceleration_tuple = (acceleration * dx, acceleration * dy)
     return acceleration_tuple
+
+
+# Planet Object
+class Planet(pygame.sprite.Sprite):
+    def __init__(self, position):
+        super().__init__()
+        self.image = pygame.image.load("./image/planet.png")
+        self.rect = self.image.get_rect()
+        self.rect.center = position
+
+    def draw(self, surface):
+        surface.blit(self.image, self.rect)
 
 
 # Blackhole Object
@@ -60,13 +85,13 @@ class Blackhole(pygame.sprite.Sprite):
 
 # Meteor Object
 class Meteor(pygame.sprite.Sprite):
-    def __init__(self):
+    def __init__(self, position):
         super().__init__()  # call the father's init
         self.original_image = pygame.image.load("./image/meteor.png")
         self.image = self.original_image
         # the collision box
         self.rect = self.image.get_rect()
-        self.rect.center = (200, 200)
+        self.rect.center = position
         # meteor's physical statements:
         self.force: float = 0.2  # initial force, ranging in (0, 5)
         self.rotation: float = 0
@@ -84,13 +109,13 @@ class Meteor(pygame.sprite.Sprite):
                 self.rotation += 0.1
             if pressed_keys[K_DOWN]:
                 self.rotation -= 0.1
-            if pressed_keys[K_RIGHT] and self.force < 10:
+            if pressed_keys[K_RIGHT] and self.force < 7:
                 self.force += 0.2
             if pressed_keys[K_LEFT] and self.force > 0.4:
                 self.force -= 0.2
             if pressed_keys[K_SPACE]:
                 self.launched = True
-                self.velocity = [self.force, 0]
+                self.velocity = [self.force * 2, 0]
         # update the rotation of meteor (this need to be done every tick)
         self.angle += self.rotation
         self.image = pygame.transform.rotate(self.original_image, self.angle)
@@ -118,7 +143,8 @@ class Meteor(pygame.sprite.Sprite):
     def draw(self, surface):
         # Draw the meteor image
         surface.blit(self.image, self.rect)
-
+        if self.launched:
+            return
         # Calculate the position of the arrow
         arrow_start = (self.rect.right + 10, self.rect.centery)
         arrow_end = (arrow_start[0] + self.force * 30, arrow_start[1])
@@ -139,23 +165,86 @@ class Meteor(pygame.sprite.Sprite):
                                              arrow_end[1] + arrow_size * math.sin(angle - math.pi / 6))))
 
 
+P1 = Meteor((100, 100))
+H1 = Blackhole((400, 400))
+H2 = Blackhole((1000, 600))
+G1 = Planet((1400, 900))
 
-P1 = Meteor()
-H1 = Blackhole((600, 600))
-
-# Game loop
 while True:
-    for event in pygame.event.get():
-        # When the following condition is satisfied, the program exit
-        if event.type == QUIT:
-            pygame.quit()
-            sys.exit()
-    P1.update([H1])
-    DISPLAYSURF.fill(BLACK)
-    P1.draw(DISPLAYSURF)
+    # Background image
+    background_image = pygame.image.load("./image/background.jpg")
+    background_rect = background_image.get_rect()
 
-    H1.draw(DISPLAYSURF)
+    # Game loop
+    while True:
+        for event in pygame.event.get():
+            # When the following condition is satisfied, the program exit
+            if event.type == QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == KEYDOWN:
+                if event.key == K_RETURN:
+                    if start_screen:
+                        start_screen = False
+                        game_started = True
+                elif event.key == K_r:
+                    if game_over:
+                        game_over = False
+                        P1.__init__((100, 100))
+                        break
 
-    pygame.display.update()
-    FramePerSec.tick(FPS)
+        # Check the game stage
+        if start_screen:
+            # Display the start screen
+            start_image = pygame.image.load("./image/start.jpg")
+            DISPLAYSURF.blit(start_image, (0, 0))
+            pygame.display.update()
+            continue
+        elif game_started:
+            P1.update([H1])
+
+        # For game over state
+        if game_over:
+            # Display game over message and instructions to try again
+            game_over_text = pygame.font.SysFont(None, 50).render("Game Over. Press R to try again.", True, RED)
+            text_rect = game_over_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+            DISPLAYSURF.blit(game_over_text, text_rect)
+            pygame.display.update()
+            continue
+
+        # For the game win state
+        if game_win:
+            # Display game win message and wait for user input to quit
+            game_win_text = pygame.font.SysFont(None, 50).render("You Win!", True, GREEN)
+            text_rect = game_win_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+            DISPLAYSURF.blit(game_win_text, text_rect)
+            pygame.display.update()
+
+            for event in pygame.event.get():
+                if event.type == KEYDOWN:
+                    pygame.quit()
+                    sys.exit()
+            continue
+
+        # Check collision with black hole and planet
+        if pygame.sprite.collide_rect(P1, H1) or pygame.sprite.collide_rect(P1, H2):
+            # Game failed
+            game_over = True
+
+        if pygame.sprite.collide_rect(P1, G1):
+            # Game succeeded
+            game_win = True
+
+        P1.update([H1, H2])
+        DISPLAYSURF.blit(background_image, background_rect)
+        P1.draw(DISPLAYSURF)
+
+        H1.draw(DISPLAYSURF)
+
+        H2.draw(DISPLAYSURF)
+
+        G1.draw(DISPLAYSURF)
+
+        pygame.display.update()
+        FramePerSec.tick(FPS)
 
